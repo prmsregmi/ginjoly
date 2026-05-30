@@ -1,28 +1,80 @@
 import asyncio
+import ipaddress
 import os
+import secrets
 import sys
 import uuid
 from datetime import UTC, datetime, timezone
+from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "server"))
 
 from agent.meet_bot import join_meet
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.config import get_settings
-from app.meeting.brain import get_active_mcps, set_dynamic_mcps, remove_dynamic_mcp
+from app.meeting.brain import get_active_mcps, remove_dynamic_mcp, set_dynamic_mcps
 
 app = FastAPI()
 
+# CORS: allow only localhost origins — this server is local-only
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Auth ───────────────────────────────────────────────────────────────────────
+# Simple bearer token for the MCP mutation endpoints. Generated once at startup
+# and printed to stdout so the frontend can read it from the server log.
+# Not stored anywhere persistent — regenerated on each restart (runtime-only).
+_API_TOKEN: str = os.environ.get("BRIDGE_API_TOKEN") or secrets.token_urlsafe(32)
+
+
+def require_auth(authorization: str = Header(default="")) -> None:
+    """Dependency: reject requests whose Authorization header doesn't match."""
+    expected = f"Bearer {_API_TOKEN}"
+    if not secrets.compare_digest(authorization, expected):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# ── URL validation (SSRF guard) ────────────────────────────────────────────────
+_PRIVATE_NETS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+]
+
+
+def _validate_mcp_url(url: str) -> str:
+    """Raise HTTPException if the URL targets a loopback or RFC-1918 address."""
+    if not url:
+        return url
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            raise HTTPException(status_code=400, detail="MCP URL must use http or https")
+        host = parsed.hostname or ""
+        try:
+            addr = ipaddress.ip_address(host)
+            for net in _PRIVATE_NETS:
+                if addr in net:
+                    raise HTTPException(status_code=400, detail="MCP URL must not point to a private/loopback address")
+        except ValueError:
+            pass  # hostname (not IP) — allowed
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid MCP URL")
+    return url
 
 # ── State ──────────────────────────────────────────────────────────────────────
 
@@ -146,16 +198,16 @@ async def list_mcps():
 
 
 @app.post("/api/mcps")
-async def upsert_mcp(req: McpUpsertRequest):
+async def upsert_mcp(req: McpUpsertRequest, _: None = Depends(require_auth)):
+    _validate_mcp_url(req.url)
     set_dynamic_mcps([{"name": req.name, "label": req.label or req.name, "url": req.url, "token": req.token}])
     return {"ok": True}
 
 
 @app.delete("/api/mcps/{name}")
-async def delete_mcp(name: str):
+async def delete_mcp(name: str, _: None = Depends(require_auth)):
     removed = remove_dynamic_mcp(name)
     if not removed:
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Cannot remove builtin MCP or not found")
     return {"ok": True}
 
@@ -278,7 +330,15 @@ async def run_bot(mid: str, meeting_url: str):
             )
 
 
+@app.get("/api/token")
+async def get_token():
+    """Return the API token for the UI — only reachable from localhost."""
+    return {"token": _API_TOKEN}
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=False)
+    print(f"\n[bridge] API token: {_API_TOKEN}\n")
+    # Bind to localhost only — this server is not meant to be reachable externally
+    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False)

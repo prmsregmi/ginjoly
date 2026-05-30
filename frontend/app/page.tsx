@@ -470,6 +470,15 @@ interface McpServer {
   builtin: boolean;
 }
 
+// Pre-filled URLs for known MCP services — users only need to paste their API key
+const MCP_PRESETS: Record<string, { url: string; tokenLabel: string; tokenPlaceholder: string }> = {
+  linear:       { url: "https://mcp.linear.app/sse",          tokenLabel: "Linear API Key",       tokenPlaceholder: "lin_api_..." },
+  google_drive: { url: "https://mcp.googleapis.com/drive",    tokenLabel: "Google OAuth Token",    tokenPlaceholder: "ya29.a..." },
+  jira:         { url: "",                                     tokenLabel: "Jira Bearer Token",     tokenPlaceholder: "Bearer ..." },
+  slack:        { url: "",                                     tokenLabel: "Slack Bot Token",       tokenPlaceholder: "xoxb-..." },
+  gmail:        { url: "",                                     tokenLabel: "Gmail OAuth Token",     tokenPlaceholder: "ya29.a..." },
+};
+
 const MCP_ICONS: Record<string, string> = {
   linear: "LN",
   google_drive: "GD",
@@ -486,9 +495,20 @@ function McpPanel() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [addForm, setAddForm] = useState({ name: "", label: "", url: "", token: "" });
   const [saving, setSaving] = useState<string | null>(null);
+  const [apiToken, setApiToken] = useState<string>("");
+
+  const authHeaders = (extra: Record<string, string> = {}) => ({
+    ...(apiToken ? { Authorization: `Bearer ${apiToken}` } : {}),
+    ...extra,
+  });
 
   const fetchMcps = async () => {
     try {
+      // Fetch the session token on first load
+      if (!apiToken) {
+        const t = await fetch("http://localhost:8000/api/token").then(r => r.ok ? r.json() : null).catch(() => null);
+        if (t?.token) setApiToken(t.token);
+      }
       const res = await fetch("http://localhost:8000/api/mcps");
       if (res.ok) setMcps(await res.json());
     } finally {
@@ -498,6 +518,17 @@ function McpPanel() {
 
   useEffect(() => { fetchMcps(); }, []);
 
+  const handleExpand = (name: string) => {
+    const preset = MCP_PRESETS[name];
+    if (expandedName !== name && preset?.url) {
+      setConfigForm(prev => ({
+        ...prev,
+        [name]: { url: preset.url, token: prev[name]?.token ?? "" },
+      }));
+    }
+    setExpandedName(expandedName === name ? null : name);
+  };
+
   const handleConfigure = async (name: string) => {
     const form = configForm[name] ?? { url: "", token: "" };
     setSaving(name);
@@ -505,7 +536,7 @@ function McpPanel() {
       const mcp = mcps.find(m => m.name === name);
       await fetch("http://localhost:8000/api/mcps", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ name, label: mcp?.label ?? name, url: form.url, token: form.token }),
       });
       await fetchMcps();
@@ -516,7 +547,7 @@ function McpPanel() {
   };
 
   const handleDelete = async (name: string) => {
-    await fetch(`http://localhost:8000/api/mcps/${name}`, { method: "DELETE" });
+    await fetch(`http://localhost:8000/api/mcps/${name}`, { method: "DELETE", headers: authHeaders() });
     await fetchMcps();
   };
 
@@ -525,7 +556,7 @@ function McpPanel() {
     try {
       await fetch("http://localhost:8000/api/mcps", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(addForm),
       });
       await fetchMcps();
@@ -545,107 +576,102 @@ function McpPanel() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-8">
-      <div className="mb-6">
-        <h2 className="text-[16px] font-semibold text-white">Integrations</h2>
-        <p className="text-[13px] text-zinc-500 mt-1">Manage MCP servers available to the meeting brain. Changes take effect immediately but are not persisted — add to <code className="text-zinc-400 bg-white/[0.05] px-1 py-0.5 rounded">.env</code> for permanence.</p>
-      </div>
-
-      <div className="space-y-2">
-        {mcps.map((mcp) => (
-          <div key={mcp.name} className="bg-[#0f0f12] border border-white/[0.07] rounded-2xl overflow-hidden">
-            <div className="flex items-center gap-4 px-5 py-4">
+    <div className="space-y-1.5">
+      {mcps.map((mcp) => {
+        const preset = MCP_PRESETS[mcp.name];
+        const isExpanded = expandedName === mcp.name;
+        return (
+          <div key={mcp.name} className={`bg-[#0f0f12] border rounded-xl overflow-hidden transition-colors ${isExpanded ? "border-white/[0.15]" : "border-white/[0.07]"}`}>
+            {/* Row */}
+            <button
+              onClick={() => handleExpand(mcp.name)}
+              className="w-full flex items-center gap-3 px-3 py-3 hover:bg-white/[0.02] transition-colors text-left"
+            >
               {/* Icon */}
-              <div className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shrink-0">
-                <span className="text-[11px] font-bold text-zinc-400">{MCP_ICONS[mcp.name] ?? mcp.name.slice(0, 2).toUpperCase()}</span>
+              <div className="w-8 h-8 rounded-lg bg-white/[0.05] border border-white/[0.08] flex items-center justify-center shrink-0">
+                <span className="text-[10px] font-bold text-zinc-400">{MCP_ICONS[mcp.name] ?? mcp.name.slice(0, 2).toUpperCase()}</span>
               </div>
 
-              {/* Name + badge */}
-              <div className="flex-1 min-w-0">
-                <div className="text-[14px] font-medium text-white">{mcp.label}</div>
-                <div className="text-[12px] text-zinc-600 mt-0.5">{mcp.builtin ? "Built-in" : "Custom"}</div>
+              {/* Name */}
+              <div className="flex-1 min-w-0 text-left">
+                <div className="text-[13px] font-medium text-white leading-tight">{mcp.label}</div>
               </div>
 
-              {/* Status badge */}
+              {/* Status dot */}
               {mcp.connected ? (
-                <span className="shrink-0 text-[11px] font-medium text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 px-2.5 py-1 rounded-full">Connected</span>
+                <span className="shrink-0 flex items-center gap-1.5 text-[11px] text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  Connected
+                </span>
               ) : (
-                <span className="shrink-0 text-[11px] font-medium text-zinc-500 bg-white/[0.03] border border-white/[0.06] px-2.5 py-1 rounded-full">Not configured</span>
+                <span className="shrink-0 text-[11px] text-zinc-600">Not set</span>
               )}
 
-              {/* Configure button */}
-              <button
-                onClick={() => setExpandedName(expandedName === mcp.name ? null : mcp.name)}
-                className="shrink-0 h-8 px-3 text-[12px] text-zinc-400 border border-white/[0.08] rounded-lg hover:text-white hover:border-white/20 transition-colors"
-              >
-                Configure
-              </button>
+              {/* Chevron */}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className={`shrink-0 text-zinc-600 transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
 
-              {/* Delete (custom only) */}
-              {!mcp.builtin && (
-                <button
-                  onClick={() => handleDelete(mcp.name)}
-                  className="shrink-0 h-8 w-8 flex items-center justify-center text-zinc-700 hover:text-red-400 transition-colors rounded-lg border border-white/[0.06] hover:border-red-900/50"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
-
-            {/* Inline configure panel */}
-            {expandedName === mcp.name && (
-              <div className="border-t border-white/[0.06] px-5 py-4 space-y-3 bg-white/[0.01]">
+            {/* Expanded config */}
+            {isExpanded && (
+              <div className="border-t border-white/[0.06] px-3 py-3 space-y-2.5 bg-white/[0.01]">
+                {/* Only show URL field if no preset URL (unknown services) */}
+                {!preset?.url && (
+                  <div>
+                    <label className="block text-[10px] text-zinc-600 uppercase tracking-wider mb-1">MCP URL</label>
+                    <input
+                      className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-[12px] text-white placeholder-zinc-700 outline-none focus:border-white/20 transition-all"
+                      placeholder="https://mcp.example.com"
+                      value={configForm[mcp.name]?.url ?? ""}
+                      onChange={(e) => setConfigForm(prev => ({ ...prev, [mcp.name]: { ...prev[mcp.name] ?? { token: "" }, url: e.target.value } }))}
+                    />
+                  </div>
+                )}
                 <div>
-                  <label className="block text-[11px] text-zinc-500 uppercase tracking-wider mb-1.5">MCP URL</label>
-                  <input
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-zinc-700 outline-none focus:border-white/20 transition-all"
-                    placeholder="https://mcp.example.com"
-                    value={configForm[mcp.name]?.url ?? ""}
-                    onChange={(e) => setConfigForm(prev => ({ ...prev, [mcp.name]: { ...prev[mcp.name] ?? { token: "" }, url: e.target.value } }))}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] text-zinc-500 uppercase tracking-wider mb-1.5">Bearer Token</label>
+                  <label className="block text-[10px] text-zinc-600 uppercase tracking-wider mb-1">
+                    {preset?.tokenLabel ?? "Bearer Token"}
+                  </label>
                   <input
                     type="password"
-                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-zinc-700 outline-none focus:border-white/20 transition-all"
-                    placeholder="sk-..."
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-[12px] text-white placeholder-zinc-700 outline-none focus:border-white/20 transition-all"
+                    placeholder={preset?.tokenPlaceholder ?? "sk-..."}
                     value={configForm[mcp.name]?.token ?? ""}
-                    onChange={(e) => setConfigForm(prev => ({ ...prev, [mcp.name]: { ...prev[mcp.name] ?? { url: "" }, token: e.target.value } }))}
+                    onChange={(e) => setConfigForm(prev => ({ ...prev, [mcp.name]: { ...prev[mcp.name] ?? { url: preset?.url ?? "" }, token: e.target.value } }))}
                   />
                 </div>
-                {mcp.builtin && (
-                  <p className="text-[11px] text-zinc-600">Runtime only. To persist, add <code className="text-zinc-500">{mcp.name.toUpperCase()}_MCP_URL</code> and <code className="text-zinc-500">{mcp.name.toUpperCase()}_MCP_TOKEN</code> to your <code className="text-zinc-500">.env</code>.</p>
-                )}
-                <div className="flex gap-2 pt-1">
+                <div className="flex gap-2">
                   <button
                     onClick={() => setExpandedName(null)}
-                    className="flex-1 h-9 rounded-xl border border-white/[0.08] text-[12px] text-zinc-400 hover:text-white hover:border-white/20 transition-colors"
+                    className="flex-1 h-8 rounded-lg border border-white/[0.08] text-[12px] text-zinc-500 hover:text-white transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={() => handleConfigure(mcp.name)}
                     disabled={saving === mcp.name}
-                    className="flex-1 h-9 rounded-xl bg-white text-black text-[12px] font-semibold hover:bg-zinc-100 disabled:opacity-30 transition-colors"
+                    className="flex-1 h-8 rounded-lg bg-white text-black text-[12px] font-semibold hover:bg-zinc-100 disabled:opacity-40 transition-colors"
                   >
                     {saving === mcp.name ? "Saving…" : "Save"}
                   </button>
                 </div>
+                {!mcp.builtin && (
+                  <button onClick={() => handleDelete(mcp.name)} className="w-full text-[11px] text-red-500/60 hover:text-red-400 transition-colors pt-0.5">
+                    Remove integration
+                  </button>
+                )}
               </div>
             )}
           </div>
-        ))}
-      </div>
+        );
+      })}
 
       {/* Add integration */}
       <button
         onClick={() => setShowAddModal(true)}
-        className="mt-4 w-full h-11 rounded-2xl border border-dashed border-white/[0.1] text-[13px] text-zinc-500 hover:text-white hover:border-white/20 transition-colors"
+        className="mt-2 w-full h-9 rounded-xl border border-dashed border-white/[0.08] text-[12px] text-zinc-600 hover:text-zinc-400 hover:border-white/[0.15] transition-colors"
       >
-        + Add integration
+        + Add custom integration
       </button>
 
       {/* Add modal */}
