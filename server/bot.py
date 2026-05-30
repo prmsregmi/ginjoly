@@ -38,7 +38,6 @@ from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
-from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
 from app.config import Settings, get_settings
@@ -57,7 +56,7 @@ def build_stt(settings: Settings):
 
     Nemotron Speech Streaming drives its own turn finalization (hard reset on
     VAD stop -> finalized=True TranscriptionFrame), which pairs with the
-    smart-turn stop strategy in FilterIncompleteUserTurnStrategies below.
+    default smart-turn stop strategy used below.
     """
     if settings.stt_provider.lower() == "nemotron":
         from app.services.nvidia_stt import NVidiaWebSocketSTTService
@@ -109,13 +108,14 @@ async def run_bot(transport: BaseTransport):
     context = LLMContext()
     context_aggregator = LLMContextAggregatorPair(
         context,
-        user_params=LLMUserAggregatorParams(
-            vad_analyzer=SileroVADAnalyzer(),
-            # Smart-turn endpointing: filter incomplete user turns instead of
-            # ending the turn on the first VAD silence. Cuts mid-sentence
-            # interruptions and lets the STT's finalization end the turn fast.
-            user_turn_strategies=FilterIncompleteUserTurnStrategies(),
-        ),
+        # Turn-taking: rely on the default stop strategy
+        # (TurnAnalyzerUserTurnStopStrategy + LocalSmartTurnAnalyzerV3), an
+        # audio model that decides end-of-turn from prosody. We deliberately do
+        # NOT use FilterIncompleteUserTurnStrategies here: it drives turn
+        # completion with the conversation LLM, injecting a "every response must
+        # begin with a ✓/○/◐ marker" system prompt that overrides the flow's
+        # screening persona and turns the agent into a generic chatbot.
+        user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()),
     )
 
     pipeline = Pipeline(

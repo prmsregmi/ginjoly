@@ -4,6 +4,13 @@ The plan's separate "intro" stage is folded into the initial collect_anchors
 node — its greeting is the node's `tts_say` pre-action — to avoid a fragile
 no-input auto-transition. Each node is built from the session's Context, so the
 same graph drives any screening type.
+
+Prompt architecture note: the binding behaviour (stay in role, be terse, and —
+critically — CALL THE TOOLS) lives in each node's ``role_message``, because
+pipecat-flows delivers that as the LLM *system* instruction. ``task_messages``
+are demoted to a user-role message by the Anthropic adapter, so anything the
+agent must actually obey cannot live there — it would arrive as if the caller
+said it. Keep ``task_messages`` as a short nudge; keep authority in role_message.
 """
 
 from loguru import logger
@@ -13,13 +20,26 @@ from app.contexts.schema import Context
 from app.session import SessionState
 from app.verify.tool import make_verify_claim_schema
 
+# Hard constraints shared by every node. This is spoken aloud over a phone, and
+# the agent must not behave like a general-purpose chat assistant.
+_RULES = (
+    "You are on a live phone call and your words are read aloud by a "
+    "text-to-speech engine. Rules you must always follow:\n"
+    "- Reply in at most one or two short spoken sentences.\n"
+    "- Never use lists, numbered points, bullets, markdown, asterisks, headings, "
+    "or emojis. Write plain spoken prose.\n"
+    "- Do not be sycophantic. Skip openers like 'Great question', 'Absolutely', "
+    "'That's awesome', 'I'd be happy to'. Get to the point.\n"
+    "- Stay strictly in your role. Do not answer the caller's general questions, "
+    "give advice, or chitchat. If they go off-topic, briefly redirect to your task."
+)
+
 
 def _persona(ctx: Context) -> str:
     return (
         f"You are the voice screening agent for {ctx.display_name}. "
-        "You speak naturally and concisely — one or two short sentences per turn, "
-        "never lists, markdown, or emojis, because your words are spoken aloud. "
-        "You are warm but genuinely probing; you listen for specifics."
+        "You are warm but genuinely probing, and you listen for specifics. "
+        f"{_RULES}"
     )
 
 
@@ -44,8 +64,8 @@ def make_collect_anchors_node(session: SessionState) -> NodeConfig:
     record_anchors_schema = FlowsFunctionSchema(
         name="record_anchors",
         description=(
-            "Record the caller's identity anchors once you have at least their "
-            "name, company/school, and email."
+            "Record the caller's identity anchors. Call this as soon as you have "
+            "their name, company/school, and email."
         ),
         properties={
             "name": {"type": "string", "description": "Caller's full name"},
@@ -60,19 +80,27 @@ def make_collect_anchors_node(session: SessionState) -> NodeConfig:
         handler=record_anchors,
     )
 
+    role_message = (
+        f"{_persona(ctx)}\n\n"
+        "Your only task right now is to collect three things from the caller, one "
+        "at a time and briefly:\n"
+        f"{anchor_lines}\n"
+        "Ask for whichever you don't have yet. Read the email back once to confirm "
+        "it. The moment you have the name, company/school, and email, you MUST call "
+        "the record_anchors tool with everything gathered — that is the only way to "
+        "move forward. Until you have all three, keep asking for the missing one; do "
+        "not interview them, answer their questions, or make small talk."
+    )
+
     return NodeConfig(
         name="collect_anchors",
-        role_message=_persona(ctx),
+        role_message=role_message,
         task_messages=[
             {
-                "role": "developer",
+                "role": "system",
                 "content": (
-                    "Collect the following from the caller, asking for any you don't "
-                    "yet have, one at a time and briefly:\n"
-                    f"{anchor_lines}\n"
-                    "Read the email back to confirm it. Once you have their name, "
-                    "company/school, and email, call record_anchors with everything "
-                    "you've gathered."
+                    "Collect the caller's name, company/school, and email, then call "
+                    "record_anchors."
                 ),
             }
         ],
@@ -100,20 +128,27 @@ def make_questioning_node(session: SessionState) -> NodeConfig:
         handler=wrap_up,
     )
 
+    role_message = (
+        f"{_persona(ctx)}\n\n"
+        "You are now interviewing the caller. Ask these questions in order, one at a "
+        "time, with at most one short follow-up each:\n"
+        f"{question_lines}\n"
+        "When the caller states a concrete factual claim (a specific project, role, "
+        "employer, tool, or contribution), you MUST call the verify_claim tool with "
+        "that claim, then continue the interview. Track how many questions you've "
+        f"asked: ask at most {ctx.max_questions}. When you have asked them all, or the "
+        "caller wants to finish, you MUST call wrap_up."
+    )
+
     return NodeConfig(
         name="questioning",
-        role_message=_persona(ctx),
+        role_message=role_message,
         task_messages=[
             {
-                "role": "developer",
+                "role": "system",
                 "content": (
-                    "Interview the caller. Ask these questions in order, one at a "
-                    "time, with at most one brief follow-up each:\n"
-                    f"{question_lines}\n"
-                    "When the caller answers with a concrete factual claim (a project, "
-                    "role, tool, or contribution), call verify_claim with that claim. "
-                    f"Ask at most {ctx.max_questions} questions. When you have asked "
-                    "them all, or the caller wants to finish, call wrap_up."
+                    "Ask the next interview question. Call verify_claim on concrete "
+                    "claims; call wrap_up when finished."
                 ),
             }
         ],
@@ -126,12 +161,12 @@ def make_close_node(session: SessionState) -> NodeConfig:
     ctx = session.context
     return NodeConfig(
         name="close",
-        role_message=_persona(ctx),
+        role_message=(
+            f"{_persona(ctx)}\n\n"
+            f"Say exactly this and nothing else, then stop: {ctx.close_script}"
+        ),
         task_messages=[
-            {
-                "role": "developer",
-                "content": f"Say exactly this and nothing else: {ctx.close_script}",
-            }
+            {"role": "system", "content": f"Say the closing line: {ctx.close_script}"}
         ],
         post_actions=[{"type": "end_conversation"}],
     )
