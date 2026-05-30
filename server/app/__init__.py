@@ -1,1 +1,1 @@
-"""Ginjoly: context-parameterized inbound interview/verification voice agent."""
+"""Ginjoly: a meeting voice agent that listens, extracts tasks, and acts on them via MCP."""

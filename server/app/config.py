@@ -2,9 +2,8 @@
 
 Every key is optional so the module imports cleanly even when a given
 integration is not configured yet; callers check for the specific key they
-need. Phase 1 voice requires DEEPGRAM/ANTHROPIC/CARTESIA; verification adds
-SCRAPINGDOG/GITHUB; eval adds CEKURA; long-term memory writes to an Obsidian
-vault on disk (OBSIDIAN_VAULT_PATH, no key needed).
+need. The voice pipeline requires DEEPGRAM/ANTHROPIC/CARTESIA; long-term memory
+writes to an Obsidian vault on disk (OBSIDIAN_VAULT_PATH, no key needed).
 """
 
 import uuid
@@ -49,25 +48,11 @@ class Settings(BaseSettings):
     nemotron_llm_api_key: str = "EMPTY"  # vLLM ignores unless served with --api-key
     nemotron_enable_thinking: bool = False  # keep OFF for low-latency voice
 
-    # --- Verification brain ---
-    scrapingdog_api_key: str | None = None
-    github_token: str | None = None
-
-    # --- Eval ---
-    cekura_api_key: str | None = None
-    cekura_agent_id: str = "ginjoly"
-
-    # --- Transport (hosted demo) ---
-    daily_api_key: str | None = None
-
     # --- Long-term memory (Obsidian vault on disk) ---
     # Team best-practices note + per-meeting transcript archive are written here.
     obsidian_vault_path: str = "./vault"
 
-    # --- Behaviour knobs ---
-    verify_timeout_secs: float = 20.0
-
-    # --- Meeting task agent (second app; shares transport/STT/TTS) ---
+    # --- Meeting task agent ---
     # The bot listens passively in a meeting and only acts when addressed by one
     # of these wake names. Comma-separated in the env; parsed via wake_names.
     meeting_wake_names: str = "onion"

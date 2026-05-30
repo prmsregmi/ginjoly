@@ -1,4 +1,4 @@
-"""Swappable STT, shared by both agents (interview + meeting).
+"""Swappable STT for the meeting agent.
 
 Baseline is Deepgram. `stt_provider="nemotron"` swaps in NVIDIA Speech
 Streaming over a websocket; that service drives its own turn finalization
