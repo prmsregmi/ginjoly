@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # Mixed Google-Meet audio arrives as raw 16-bit PCM at this rate (mono);
     # the bot's TTS is sent back at the same rate for the Playwright bridge.
     meeting_sample_rate: int = 16000
+    # Rate the bot speaks back at (TTS -> injected Meet mic). 48 kHz matches Meet's
+    # Opus pipeline and the in-page AudioContext, so no resampling is needed.
+    meeting_playback_sample_rate: int = 48000
     # Speak a short ack ("On it.") while the MCP task runs in the background.
     meeting_speak_ack: bool = True
     # Safety cap on un-summarized transcript lines held as the tail (the rolling
