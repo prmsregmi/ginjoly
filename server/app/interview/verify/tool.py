@@ -14,9 +14,9 @@ from loguru import logger
 from pipecat_flows import FlowArgs, FlowManager, FlowsFunctionSchema
 
 from app.config import get_settings
-from app.session import SessionState
-from app.verify.brain import run_verification
-from app.verify.schema import Verdict, VerifyClaimInput
+from app.interview.session import SessionState
+from app.interview.verify.brain import run_verification
+from app.interview.verify.schema import Verdict, VerifyClaimInput
 
 
 async def _run_and_record(session: SessionState, claim: str, question_id: str | None) -> None:

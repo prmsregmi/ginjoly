@@ -25,10 +25,10 @@ from claude_agent_sdk import (
 from loguru import logger
 
 from app.config import get_settings
-from app.verify.corroboration import fallback_match_score
-from app.verify.schema import Evidence, Verdict, VerdictLabel, VerifyClaimInput
-from app.verify.tools_github import github_user
-from app.verify.tools_scrapingdog import google_search, linkedin_profile
+from app.interview.verify.corroboration import fallback_match_score
+from app.interview.verify.schema import Evidence, Verdict, VerdictLabel, VerifyClaimInput
+from app.interview.verify.tools_github import github_user
+from app.interview.verify.tools_scrapingdog import google_search, linkedin_profile
 
 VERIFY_SYSTEM = """You verify a caller's factual claim by CORROBORATING it against
 public data. You DO NOT prove identity or ownership.

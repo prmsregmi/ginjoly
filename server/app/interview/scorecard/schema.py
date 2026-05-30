@@ -9,8 +9,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.anchors import CallerAnchors
-from app.verify.schema import Verdict
+from app.interview.anchors import CallerAnchors
+from app.interview.verify.schema import Verdict
 
 
 class ClaimRecord(BaseModel):

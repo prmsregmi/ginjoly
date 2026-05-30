@@ -147,47 +147,46 @@ runs on your laptop runs in the cloud — your machine is never in the call path
 
 ## Meet Bot (Aria)
 
-Aria is a web app that sends a bot into a Google Meet. The bot joins as a guest, captures the audio, and pipes it into the ginjoly pipeline.
+Aria sends a bot into a Google Meet. A Playwright bot joins as a guest, captures the meeting's mixed
+audio, and feeds it to ginjoly's **meeting agent** — which listens passively and, when addressed by its
+wake name, runs the request against external MCP tools (Jira / Slack / Gmail) and reports back. Live
+transcript and the bot's replies stream to the web UI.
+
+The `connector/` is only the on-ramp: `connector/bridge` (Python) captures and streams audio, and
+`connector/web` (Next.js) is the UI. All voice and agent logic lives in `server/`. (Speaking back *into*
+the meeting isn't wired yet — replies appear in the UI.)
 
 ### How to run
 
-**1. Add your API key**
+**1. Keys** — the bridge runs under the `server` venv and reads `server/.env`, which already has
+`DEEPGRAM_API_KEY` / `CARTESIA_API_KEY` / `ANTHROPIC_API_KEY`. To enable real actions, also add:
 
 ```bash
-cd meet_backend
-cp .env.example .env
-# open .env and add your ANTHROPIC_API_KEY
+# server/.env
+MEETING_WAKE_NAMES=ginjoly,ginny
+JIRA_MCP_URL=...    JIRA_MCP_TOKEN=...     # same shape for SLACK_ and GMAIL_
 ```
 
-**2. Install dependencies**
+Without the MCP keys the bot still listens and replies, but says it has no tools connected.
+
+**2. Start the bridge** (Python capture + agent; needs Google Chrome installed):
 
 ```bash
-cd meet_backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python -m playwright install chromium
+cd server
+uv run python ../connector/bridge/main.py     # http://localhost:8000
 ```
 
-**3. Start the backend**
+**3. Start the web UI:**
 
 ```bash
-cd meet_backend
-source venv/bin/activate
-python main.py
-```
-
-**4. Start the frontend**
-
-```bash
-cd frontend
+cd connector/web
 npm install
-npm run dev
+npm run dev                                    # http://localhost:3000
 ```
 
-**5. Open [http://localhost:3000](http://localhost:3000)**
-
-Paste a Google Meet link → click **Join meeting** → a Chrome window opens and the bot joins as **"Aria Notetaker"** → admit it from Meet's waiting room → transcript appears live on the page.
+**4. Open [http://localhost:3000](http://localhost:3000)** — paste a Google Meet link → click **Join
+meeting** → a Chrome window opens and the bot joins as **"Aria Notetaker"** → admit it from Meet's waiting
+room → transcript and replies appear live.
 
 ---
 
@@ -195,28 +194,24 @@ Paste a Google Meet link → click **Join meeting** → a Chrome window opens an
 
 ```
 ginjoly/
-├── server/                      # the agent (pipeline)
-│   ├── bot.py                   # pipeline assembly + transport entry point
+├── server/                      # the agent logic — two agents on one cascade pipeline
+│   ├── bot.py                   # interview entry (pipecat runner: webrtc | daily)
 │   ├── app/
-│   │   ├── flow.py              # the 3-node conversation graph
+│   │   ├── config.py            # typed settings / env (shared)
 │   │   ├── llm_factory.py       # selectable LLM (anthropic | nemotron | openai | nim)
-│   │   ├── config.py            # typed settings / env
-│   │   ├── contexts/            # screening definitions (questions, anchors, rubric)
-│   │   ├── verify/              # off-voice research agent + ScrapingDog/GitHub tools
-│   │   ├── scorecard/           # scorecard schema, writer, Cekura submission
-│   │   └── services/            # Nemotron STT + vLLM LLM adapters
+│   │   ├── stt_factory.py       # selectable STT (deepgram | nemotron)
+│   │   ├── services/            # Nemotron STT + vLLM LLM adapters
+│   │   ├── interview/           # interview agent: flow graph, contexts, verify, scorecard
+│   │   └── meeting/             # meeting agent: wake-word gate, MCP brain, pipeline
 │   ├── Dockerfile               # Pipecat Cloud image
 │   └── pcc-deploy.toml          # Pipecat Cloud deploy config
-├── meet_backend/                # Aria — Meet bot + API server
-│   ├── main.py                  # FastAPI server (POST /api/join, WebSocket /ws)
-│   ├── pipeline_bridge.py       # bridges Meet audio into the ginjoly pipeline
-│   ├── agent/
-│   │   └── meet_bot.py          # Playwright bot that joins Google Meet as a guest
-│   └── static/
-│       └── audio_worklet.js     # captures audio inside the Meet page
-├── frontend/                    # Aria web UI (Next.js)
-│   └── app/
-│       └── page.tsx             # paste link → live transcript + status + actions
+├── connector/                   # joins a Google Meet, feeds audio to server/, shows the UI
+│   ├── bridge/                  # Python: FastAPI + Playwright
+│   │   ├── main.py              # FastAPI: POST /api/join, WebSocket /ws (status/transcript/replies)
+│   │   ├── pipeline_bridge.py   # runs server/'s meeting agent over the captured Meet audio
+│   │   ├── agent/meet_bot.py    # Playwright bot that joins Google Meet as a guest
+│   │   └── static/audio_worklet.js  # captures mixed audio inside the Meet page
+│   └── web/                     # Next.js UI: paste link → live transcript + replies + actions
 ├── client/                      # original browser client (Vite)
 ├── LICENSE                      # Apache-2.0
 └── README.md

@@ -4,7 +4,7 @@ The agent qualifies a builder's credibility and the truth of their project /
 experience claims, then cross-references against their public presence.
 """
 
-from app.contexts.schema import (
+from app.interview.contexts.schema import (
     AnchorSpec,
     Context,
     QuestionItem,

@@ -41,35 +41,16 @@ from pipecat.transports.daily.transport import DailyParams, DailyTransport
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.workers.runner import WorkerRunner
 
-from app.config import Settings, get_settings
-from app.contexts.hackathon import HACKATHON_CONTEXT
-from app.flow import build_flow_manager, make_collect_anchors_node
+from app.config import get_settings
+from app.interview.contexts.hackathon import HACKATHON_CONTEXT
+from app.interview.flow import build_flow_manager, make_collect_anchors_node
+from app.interview.scorecard.cekura import submit_transcript
+from app.interview.scorecard.writer import write_scorecard
+from app.interview.session import SessionState
 from app.llm_factory import build_llm
-from app.scorecard.cekura import submit_transcript
-from app.scorecard.writer import write_scorecard
-from app.session import SessionState
+from app.stt_factory import build_stt
 
 load_dotenv(override=True)
-
-
-def build_stt(settings: Settings):
-    """Build the STT service for the configured provider.
-
-    Nemotron Speech Streaming drives its own turn finalization (hard reset on
-    VAD stop -> finalized=True TranscriptionFrame), which pairs with the
-    default smart-turn stop strategy used below.
-    """
-    if settings.stt_provider.lower() == "nemotron":
-        from app.services.nvidia_stt import NVidiaWebSocketSTTService
-
-        return NVidiaWebSocketSTTService(
-            url=settings.nvidia_asr_url,
-            strip_interim_prefix=True,
-        )
-
-    from pipecat.services.deepgram.stt import DeepgramSTTService
-
-    return DeepgramSTTService(api_key=settings.deepgram_api_key)
 
 
 async def _finalize(session: SessionState, context: LLMContext) -> None:

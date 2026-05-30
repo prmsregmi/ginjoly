@@ -1,8 +1,8 @@
 """Meeting ingestion: Recall.ai transcript + calendar -> normalized Transcript."""
 
 from app.meetings.schema import (
-    AttributionSource,
     Attendee,
+    AttributionSource,
     MeetingMeta,
     SpeakerAttribution,
     SpeakerMap,

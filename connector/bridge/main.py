@@ -126,10 +126,17 @@ async def run_bot(mid: str, meeting_url: str):
         meetings[mid]["transcript"].append(text)
         await broadcast({"type": "transcript", "meeting_id": mid, "text": text})
 
+    async def on_assistant(text: str):
+        print(f"[{mid}] assistant: {text}")
+        meetings[mid]["actions"].append(text)
+        await broadcast({"type": "assistant", "meeting_id": mid, "text": text})
+
     from pipeline_bridge import run_meet_pipeline
 
     meet_task = asyncio.create_task(join_meet(meeting_url, on_audio, on_status))
-    pipeline_task = asyncio.create_task(run_meet_pipeline(audio_queue, on_transcript))
+    pipeline_task = asyncio.create_task(
+        run_meet_pipeline(audio_queue, on_transcript, on_assistant)
+    )
 
     try:
         await asyncio.gather(meet_task, pipeline_task)

@@ -19,9 +19,9 @@ said it. Keep ``task_messages`` as a short nudge; keep authority in role_message
 from loguru import logger
 from pipecat_flows import FlowArgs, FlowManager, FlowsFunctionSchema, NodeConfig
 
-from app.contexts.schema import Context
-from app.session import SessionState
-from app.verify.tool import make_verify_claim_schema
+from app.interview.contexts.schema import Context
+from app.interview.session import SessionState
+from app.interview.verify.tool import make_verify_claim_schema
 
 # Hard constraints shared by every node. This is spoken aloud over a phone, and
 # the agent must not behave like a general-purpose chat assistant.
@@ -164,12 +164,9 @@ def make_close_node(session: SessionState) -> NodeConfig:
     return NodeConfig(
         name="close",
         role_message=(
-            f"{_persona(ctx)}\n\n"
-            f"Say exactly this and nothing else, then stop: {ctx.close_script}"
+            f"{_persona(ctx)}\n\nSay exactly this and nothing else, then stop: {ctx.close_script}"
         ),
-        task_messages=[
-            {"role": "system", "content": f"Say the closing line: {ctx.close_script}"}
-        ],
+        task_messages=[{"role": "system", "content": f"Say the closing line: {ctx.close_script}"}],
         post_actions=[{"type": "end_conversation"}],
     )
 

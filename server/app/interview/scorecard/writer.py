@@ -4,10 +4,10 @@ from pathlib import Path
 
 from loguru import logger
 
-from app.scorecard.schema import Scorecard
+from app.interview.scorecard.schema import Scorecard
 
-# .../server/app/scorecard/writer.py -> parents[2] == .../server
-SCORECARDS_DIR = Path(__file__).resolve().parents[2] / "scorecards"
+# .../server/app/interview/scorecard/writer.py -> parents[3] == .../server
+SCORECARDS_DIR = Path(__file__).resolve().parents[3] / "scorecards"
 
 
 def write_scorecard(card: Scorecard) -> Path:

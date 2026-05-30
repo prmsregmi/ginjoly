@@ -1,6 +1,6 @@
 """Screening contexts: one engine, different context payloads per call type."""
 
-from app.contexts.schema import (
+from app.interview.contexts.schema import (
     AnchorSpec,
     Context,
     QuestionItem,

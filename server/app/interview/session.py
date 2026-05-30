@@ -7,10 +7,10 @@ timing, then renders an immutable Scorecard at hangup. Kept as a plain object
 
 from datetime import UTC, datetime, timezone
 
-from app.anchors import CallerAnchors
-from app.contexts.schema import Context
-from app.scorecard.schema import ClaimRecord, LatencyMetrics, Scorecard
-from app.verify.schema import Verdict, VerdictLabel
+from app.interview.anchors import CallerAnchors
+from app.interview.contexts.schema import Context
+from app.interview.scorecard.schema import ClaimRecord, LatencyMetrics, Scorecard
+from app.interview.verify.schema import Verdict, VerdictLabel
 
 
 def _now() -> datetime:

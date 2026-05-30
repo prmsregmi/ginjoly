@@ -9,7 +9,7 @@ from enum import Enum, StrEnum
 
 from pydantic import BaseModel, Field
 
-from app.anchors import CallerAnchors
+from app.interview.anchors import CallerAnchors
 
 DISCLAIMER = "Corroboration against public data only; not proof of identity or ownership."
 

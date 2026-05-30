@@ -65,6 +65,38 @@ class Settings(BaseSettings):
     # --- Behaviour knobs ---
     verify_timeout_secs: float = 20.0
 
+    # --- Meeting task agent (second app; shares transport/STT/TTS) ---
+    # The bot listens passively in a meeting and only acts when addressed by one
+    # of these wake names. Comma-separated in the env; parsed via wake_names.
+    meeting_wake_names: str = "ginjoly,ginny"
+    meeting_ws_host: str = "0.0.0.0"
+    meeting_ws_port: int = 7861
+    # Mixed Google-Meet audio arrives as raw 16-bit PCM at this rate (mono);
+    # the bot's TTS is sent back at the same rate for the Playwright bridge.
+    meeting_sample_rate: int = 16000
+    # Speak a short ack ("On it.") while the MCP task runs in the background.
+    meeting_speak_ack: bool = True
+    # Lines of recent transcript handed to the brain for "what we just discussed".
+    meeting_transcript_window: int = 12
+    # Discard transcriptions that echo the bot's own recent speech (mixed stream
+    # re-captures injected TTS). Backstop; the bridge should also mute on playback.
+    meeting_self_echo_filter: bool = True
+    meeting_max_turns: int = 8
+
+    # --- External MCP servers for the meeting agent (URL + bearer token) ---
+    # Each tool is registered only when BOTH its url and token are present.
+    jira_mcp_url: str | None = None
+    jira_mcp_token: str | None = None
+    slack_mcp_url: str | None = None
+    slack_mcp_token: str | None = None
+    gmail_mcp_url: str | None = None
+    gmail_mcp_token: str | None = None
+
+    @property
+    def wake_names(self) -> list[str]:
+        """Lower-cased wake names, comma-separated from the env."""
+        return [n.strip().lower() for n in self.meeting_wake_names.split(",") if n.strip()]
+
     @field_validator("cartesia_voice_id", mode="before")
     @classmethod
     def _coerce_voice_id(cls, v):
