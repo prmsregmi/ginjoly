@@ -461,6 +461,245 @@ function MeetingDetail({
   );
 }
 
+// ── MCP panel ──────────────────────────────────────────────────────────────────
+
+interface McpServer {
+  name: string;
+  label: string;
+  connected: boolean;
+  builtin: boolean;
+}
+
+const MCP_ICONS: Record<string, string> = {
+  linear: "LN",
+  google_drive: "GD",
+  jira: "JR",
+  slack: "SL",
+  gmail: "GM",
+};
+
+function McpPanel() {
+  const [mcps, setMcps] = useState<McpServer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedName, setExpandedName] = useState<string | null>(null);
+  const [configForm, setConfigForm] = useState<Record<string, { url: string; token: string }>>({});
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [addForm, setAddForm] = useState({ name: "", label: "", url: "", token: "" });
+  const [saving, setSaving] = useState<string | null>(null);
+
+  const fetchMcps = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/api/mcps");
+      if (res.ok) setMcps(await res.json());
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchMcps(); }, []);
+
+  const handleConfigure = async (name: string) => {
+    const form = configForm[name] ?? { url: "", token: "" };
+    setSaving(name);
+    try {
+      const mcp = mcps.find(m => m.name === name);
+      await fetch("http://localhost:8000/api/mcps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, label: mcp?.label ?? name, url: form.url, token: form.token }),
+      });
+      await fetchMcps();
+      setExpandedName(null);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const handleDelete = async (name: string) => {
+    await fetch(`http://localhost:8000/api/mcps/${name}`, { method: "DELETE" });
+    await fetchMcps();
+  };
+
+  const handleAdd = async () => {
+    setSaving("__add__");
+    try {
+      await fetch("http://localhost:8000/api/mcps", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(addForm),
+      });
+      await fetchMcps();
+      setShowAddModal(false);
+      setAddForm({ name: "", label: "", url: "", token: "" });
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <span className="text-zinc-600 text-[13px]">Loading integrations…</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-6 py-8">
+      <div className="mb-6">
+        <h2 className="text-[16px] font-semibold text-white">Integrations</h2>
+        <p className="text-[13px] text-zinc-500 mt-1">Manage MCP servers available to the meeting brain. Changes take effect immediately but are not persisted — add to <code className="text-zinc-400 bg-white/[0.05] px-1 py-0.5 rounded">.env</code> for permanence.</p>
+      </div>
+
+      <div className="space-y-2">
+        {mcps.map((mcp) => (
+          <div key={mcp.name} className="bg-[#0f0f12] border border-white/[0.07] rounded-2xl overflow-hidden">
+            <div className="flex items-center gap-4 px-5 py-4">
+              {/* Icon */}
+              <div className="w-9 h-9 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center shrink-0">
+                <span className="text-[11px] font-bold text-zinc-400">{MCP_ICONS[mcp.name] ?? mcp.name.slice(0, 2).toUpperCase()}</span>
+              </div>
+
+              {/* Name + badge */}
+              <div className="flex-1 min-w-0">
+                <div className="text-[14px] font-medium text-white">{mcp.label}</div>
+                <div className="text-[12px] text-zinc-600 mt-0.5">{mcp.builtin ? "Built-in" : "Custom"}</div>
+              </div>
+
+              {/* Status badge */}
+              {mcp.connected ? (
+                <span className="shrink-0 text-[11px] font-medium text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 px-2.5 py-1 rounded-full">Connected</span>
+              ) : (
+                <span className="shrink-0 text-[11px] font-medium text-zinc-500 bg-white/[0.03] border border-white/[0.06] px-2.5 py-1 rounded-full">Not configured</span>
+              )}
+
+              {/* Configure button */}
+              <button
+                onClick={() => setExpandedName(expandedName === mcp.name ? null : mcp.name)}
+                className="shrink-0 h-8 px-3 text-[12px] text-zinc-400 border border-white/[0.08] rounded-lg hover:text-white hover:border-white/20 transition-colors"
+              >
+                Configure
+              </button>
+
+              {/* Delete (custom only) */}
+              {!mcp.builtin && (
+                <button
+                  onClick={() => handleDelete(mcp.name)}
+                  className="shrink-0 h-8 w-8 flex items-center justify-center text-zinc-700 hover:text-red-400 transition-colors rounded-lg border border-white/[0.06] hover:border-red-900/50"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {/* Inline configure panel */}
+            {expandedName === mcp.name && (
+              <div className="border-t border-white/[0.06] px-5 py-4 space-y-3 bg-white/[0.01]">
+                <div>
+                  <label className="block text-[11px] text-zinc-500 uppercase tracking-wider mb-1.5">MCP URL</label>
+                  <input
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-zinc-700 outline-none focus:border-white/20 transition-all"
+                    placeholder="https://mcp.example.com"
+                    value={configForm[mcp.name]?.url ?? ""}
+                    onChange={(e) => setConfigForm(prev => ({ ...prev, [mcp.name]: { ...prev[mcp.name] ?? { token: "" }, url: e.target.value } }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-zinc-500 uppercase tracking-wider mb-1.5">Bearer Token</label>
+                  <input
+                    type="password"
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-zinc-700 outline-none focus:border-white/20 transition-all"
+                    placeholder="sk-..."
+                    value={configForm[mcp.name]?.token ?? ""}
+                    onChange={(e) => setConfigForm(prev => ({ ...prev, [mcp.name]: { ...prev[mcp.name] ?? { url: "" }, token: e.target.value } }))}
+                  />
+                </div>
+                {mcp.builtin && (
+                  <p className="text-[11px] text-zinc-600">Runtime only. To persist, add <code className="text-zinc-500">{mcp.name.toUpperCase()}_MCP_URL</code> and <code className="text-zinc-500">{mcp.name.toUpperCase()}_MCP_TOKEN</code> to your <code className="text-zinc-500">.env</code>.</p>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => setExpandedName(null)}
+                    className="flex-1 h-9 rounded-xl border border-white/[0.08] text-[12px] text-zinc-400 hover:text-white hover:border-white/20 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleConfigure(mcp.name)}
+                    disabled={saving === mcp.name}
+                    className="flex-1 h-9 rounded-xl bg-white text-black text-[12px] font-semibold hover:bg-zinc-100 disabled:opacity-30 transition-colors"
+                  >
+                    {saving === mcp.name ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Add integration */}
+      <button
+        onClick={() => setShowAddModal(true)}
+        className="mt-4 w-full h-11 rounded-2xl border border-dashed border-white/[0.1] text-[13px] text-zinc-500 hover:text-white hover:border-white/20 transition-colors"
+      >
+        + Add integration
+      </button>
+
+      {/* Add modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setShowAddModal(false)} />
+          <div className="relative w-full max-w-lg bg-[#0f0f12] border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+            <div className="px-6 pt-6 pb-5 space-y-3">
+              <h2 className="text-[15px] font-semibold text-white">Add custom integration</h2>
+              {[
+                { key: "name", label: "Name (identifier)", placeholder: "my_server" },
+                { key: "label", label: "Display name", placeholder: "My Server" },
+                { key: "url", label: "MCP URL", placeholder: "https://mcp.example.com" },
+              ].map(({ key, label, placeholder }) => (
+                <div key={key}>
+                  <label className="block text-[11px] text-zinc-500 uppercase tracking-wider mb-1.5">{label}</label>
+                  <input
+                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-zinc-700 outline-none focus:border-white/20 transition-all"
+                    placeholder={placeholder}
+                    value={addForm[key as keyof typeof addForm]}
+                    onChange={(e) => setAddForm(prev => ({ ...prev, [key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+              <div>
+                <label className="block text-[11px] text-zinc-500 uppercase tracking-wider mb-1.5">Bearer Token</label>
+                <input
+                  type="password"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-[13px] text-white placeholder-zinc-700 outline-none focus:border-white/20 transition-all"
+                  placeholder="sk-..."
+                  value={addForm.token}
+                  onChange={(e) => setAddForm(prev => ({ ...prev, token: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 px-6 pb-6">
+              <button onClick={() => setShowAddModal(false)} className="flex-1 h-10 rounded-xl border border-white/[0.08] text-[13px] text-zinc-400 hover:text-white hover:border-white/20 transition-colors">
+                Cancel
+              </button>
+              <button
+                onClick={handleAdd}
+                disabled={saving === "__add__" || !addForm.name || !addForm.url || !addForm.token}
+                className="flex-1 h-10 rounded-xl bg-white text-black text-[13px] font-semibold hover:bg-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                {saving === "__add__" ? "Adding…" : "Add integration"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Empty / landing ────────────────────────────────────────────────────────────
 
 function EmptyState({ onJoin }: { onJoin: () => void }) {
@@ -506,7 +745,7 @@ function Dashboard({ meetings, events, onSelect, onJoin }: {
   onSelect: (id: string) => void;
   onJoin: () => void;
 }) {
-  const [tab, setTab] = useState<"meetings" | "activity">("meetings");
+  const [tab, setTab] = useState<"meetings" | "activity" | "integrations">("meetings");
   const active = meetings.filter((m) => ["live", "joining", "waiting"].includes(m.state));
   const past   = meetings.filter((m) => ["ended", "error"].includes(m.state));
   const meetingsMap = Object.fromEntries(meetings.map((m) => [m.meeting_id, m]));
@@ -526,24 +765,22 @@ function Dashboard({ meetings, events, onSelect, onJoin }: {
             <span className="text-[14px] font-semibold text-white">Aria</span>
           </div>
 
-          {meetings.length > 0 && (
-            <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.07] rounded-lg p-1">
-              {(["meetings", "activity"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`px-3 py-1.5 text-[12px] font-medium rounded-md capitalize transition-colors ${
-                    tab === t ? "bg-white/[0.08] text-white" : "text-zinc-500 hover:text-zinc-300"
-                  }`}
-                >
-                  {t}
-                  {t === "activity" && events.length > 0 && (
-                    <span className="ml-1.5 text-zinc-600 tabular-nums">{events.length}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex items-center gap-1 bg-white/[0.04] border border-white/[0.07] rounded-lg p-1">
+            {(["meetings", "activity", "integrations"] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-1.5 text-[12px] font-medium rounded-md capitalize transition-colors ${
+                  tab === t ? "bg-white/[0.08] text-white" : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {t}
+                {t === "activity" && events.length > 0 && (
+                  <span className="ml-1.5 text-zinc-600 tabular-nums">{events.length}</span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
 
         <button onClick={onJoin} className="h-8 px-4 bg-white text-black text-[13px] font-semibold rounded-lg hover:bg-zinc-100 transition-colors">
@@ -552,7 +789,9 @@ function Dashboard({ meetings, events, onSelect, onJoin }: {
       </header>
 
       {/* Content */}
-      {meetings.length === 0 ? (
+      {tab === "integrations" ? (
+        <McpPanel />
+      ) : meetings.length === 0 ? (
         <EmptyState onJoin={onJoin} />
       ) : tab === "meetings" ? (
         <main className="max-w-4xl mx-auto px-6 py-8 space-y-8">
