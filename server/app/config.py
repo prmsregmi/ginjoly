@@ -6,9 +6,14 @@ need. Phase 1 voice requires DEEPGRAM/ANTHROPIC/CARTESIA; verification adds
 SCRAPINGDOG/GITHUB; eval adds CEKURA; Phase 2 memory adds SUPERMEMORY.
 """
 
+import uuid
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# British Reading Lady — used when CARTESIA_VOICE_ID is unset or invalid.
+DEFAULT_CARTESIA_VOICE = "71a7ad14-091c-4e8e-a314-022ece01c121"
 
 
 class Settings(BaseSettings):
@@ -17,7 +22,7 @@ class Settings(BaseSettings):
     # --- Voice pipeline (Phase 1 core) ---
     deepgram_api_key: str | None = None
     cartesia_api_key: str | None = None
-    cartesia_voice_id: str = "71a7ad14-091c-4e8e-a314-022ece01c121"
+    cartesia_voice_id: str = DEFAULT_CARTESIA_VOICE
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-5"
 
@@ -59,6 +64,20 @@ class Settings(BaseSettings):
 
     # --- Behaviour knobs ---
     verify_timeout_secs: float = 20.0
+
+    @field_validator("cartesia_voice_id", mode="before")
+    @classmethod
+    def _coerce_voice_id(cls, v):
+        """Cartesia requires a UUID. Fall back to the default if the env value
+        is empty or not a UUID (e.g. a stray inline comment from .env.example)."""
+        if not v:
+            return DEFAULT_CARTESIA_VOICE
+        candidate = str(v).strip()
+        try:
+            uuid.UUID(candidate)
+        except ValueError:
+            return DEFAULT_CARTESIA_VOICE
+        return candidate
 
 
 @lru_cache

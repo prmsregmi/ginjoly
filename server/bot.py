@@ -13,7 +13,7 @@ transcript is submitted to Cekura.
 
 The STT and LLM are selectable (settings.stt_provider / settings.llm_provider)
 so the Deepgram+Claude baseline and the NVIDIA Nemotron stack run on the same
-pipeline and flow graph — see app/stt: build_stt and app/llm_factory: build_llm.
+pipeline and flow graph — see build_stt and app/llm_factory: build_llm.
 
 Run locally (keyless transport):  uv run bot.py -t webrtc
 Run on Daily:                     uv run bot.py -t daily
@@ -29,10 +29,15 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.runner.types import DailyRunnerArguments, RunnerArguments
+from pipecat.runner.types import (
+    DailyRunnerArguments,
+    RunnerArguments,
+    SmallWebRTCRunnerArguments,
+)
 from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.transports.base_transport import BaseTransport
+from pipecat.transports.base_transport import BaseTransport, TransportParams
 from pipecat.transports.daily.transport import DailyParams, DailyTransport
+from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
 
@@ -166,9 +171,15 @@ async def bot(runner_args: RunnerArguments):
                 "Ginjoly Agent",
                 params=DailyParams(audio_in_enabled=True, audio_out_enabled=True),
             )
+        case SmallWebRTCRunnerArguments():
+            # Local dev transport: the runner hands us a live peer connection;
+            # wrap it in a SmallWebRTCTransport so the pipeline can attach.
+            transport = SmallWebRTCTransport(
+                webrtc_connection=runner_args.webrtc_connection,
+                params=TransportParams(audio_in_enabled=True, audio_out_enabled=True),
+            )
         case _:
-            # SmallWebRTC and other transports are constructed by the runner and
-            # passed through; fall back to the provided transport if present.
+            # Any other runner-constructed transport: use it if provided.
             transport = getattr(runner_args, "transport", None)
             if transport is None:
                 logger.error(f"Unsupported runner arguments: {type(runner_args)}")
