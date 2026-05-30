@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+playwright
+deepgram-sdk
+websockets
+python-dotenv
+elevenlabs
+anthropic
+chromadb
+openai
+pydantic-settings
