@@ -5,17 +5,18 @@ and pushes each chunk onto an asyncio.Queue. `MeetTransport` turns that queue
 into a pipecat input transport; the meeting agent's pipeline (VAD -> STT ->
 WakeNameGate -> brain/MCP -> TTS) runs in-process over it.
 
-Audio injection back into the Meet is deferred, so the output sink drops the
-bot's TTS audio for now; the bot's replies surface to the frontend via the
-on_assistant callback instead. Swap `NullOutput` for a real Meet audio sink when
-injection lands.
+The bot speaks back: `BrowserAudioSink` forwards the TTS `OutputAudioRawFrame`s
+onto a playback queue that the Playwright side injects as the bot's microphone.
+Because Meet mixes the bot's own voice back into the captured stream, a shared
+`PlaybackState` suppresses capture while the bot is speaking so it doesn't
+transcribe itself.
 """
 
 import asyncio
 import os
 import sys
+import time
 
-# The ginjoly backend lives in the repo's `server/` package (two levels up from
 # connector/bridge/); make `app`/`bot` importable.
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "server"))
 
@@ -30,6 +31,26 @@ from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.transports.base_transport import BaseTransport
 
 
+class PlaybackState:
+    """Shared speak flag so capture is suppressed while the bot talks.
+
+    The mixed Meet stream feeds the bot its own injected TTS, so without this the
+    bot would transcribe itself. The sink extends `speaking_until` on every output
+    audio frame; the input source drops frames while it's active, including a
+    short tail past the last frame to swallow the playback's reverb on the mix.
+    """
+
+    def __init__(self, tail: float = 0.4):
+        self._tail = tail
+        self._until = 0.0
+
+    def mark(self):
+        self._until = time.monotonic() + self._tail
+
+    def active(self) -> bool:
+        return time.monotonic() < self._until
+
+
 class MeetAudioSource(FrameProcessor):
     """Pumps raw PCM from the Meet queue into the pipeline as InputAudioRawFrames.
 
@@ -38,10 +59,13 @@ class MeetAudioSource(FrameProcessor):
     the Meet ended, which we translate into an EndFrame to drain the pipeline.
     """
 
-    def __init__(self, queue: asyncio.Queue, sample_rate: int = 16000, **kwargs):
+    def __init__(
+        self, queue: asyncio.Queue, sample_rate: int = 16000, playback_state=None, **kwargs
+    ):
         super().__init__(**kwargs)
         self._queue = queue
         self._sample_rate = sample_rate
+        self._playback_state = playback_state
         self._pump: asyncio.Task | None = None
 
     async def process_frame(self, frame, direction):
@@ -58,31 +82,52 @@ class MeetAudioSource(FrameProcessor):
             if data is None:
                 await self.push_frame(EndFrame())
                 break
+            # Drop captured audio while the bot is speaking so its own injected
+            # voice (mixed back by Meet) never reaches STT.
+            if self._playback_state and self._playback_state.active():
+                continue
             await self.push_frame(
-                InputAudioRawFrame(
-                    audio=data, sample_rate=self._sample_rate, num_channels=1
-                )
+                InputAudioRawFrame(audio=data, sample_rate=self._sample_rate, num_channels=1)
             )
 
 
-class NullOutput(FrameProcessor):
-    """Drops the bot's TTS audio (injection into Meet is deferred) but forwards
-    control frames so the pipeline can start and shut down cleanly."""
+class BrowserAudioSink(FrameProcessor):
+    """Forwards the bot's TTS audio to the Playwright page (which injects it as
+    the bot's microphone). Control/other frames flow through unchanged."""
+
+    def __init__(self, playback_queue: asyncio.Queue | None = None, playback_state=None, **kwargs):
+        super().__init__(**kwargs)
+        self._playback_queue = playback_queue
+        self._playback_state = playback_state
 
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
         if isinstance(frame, OutputAudioRawFrame):
+            if self._playback_state:
+                self._playback_state.mark()
+            if self._playback_queue is not None:
+                self._playback_queue.put_nowait(frame.audio)
             return
         await self.push_frame(frame, direction)
 
 
 class MeetTransport(BaseTransport):
-    """Minimal transport bridging the Meet audio queue into pipecat."""
+    """Minimal transport bridging the Meet audio queue into pipecat (in) and the
+    bot's TTS back out to the page (out)."""
 
-    def __init__(self, audio_queue: asyncio.Queue, sample_rate: int = 16000, **kwargs):
+    def __init__(
+        self,
+        audio_queue: asyncio.Queue,
+        sample_rate: int = 16000,
+        playback_queue: asyncio.Queue | None = None,
+        playback_state=None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
-        self._source = MeetAudioSource(audio_queue, sample_rate, name="MeetAudioSource")
-        self._sink = NullOutput(name="NullOutput")
+        self._source = MeetAudioSource(
+            audio_queue, sample_rate, playback_state, name="MeetAudioSource"
+        )
+        self._sink = BrowserAudioSink(playback_queue, playback_state, name="BrowserAudioSink")
 
     def input(self) -> FrameProcessor:
         return self._source
@@ -93,24 +138,33 @@ class MeetTransport(BaseTransport):
 
 async def run_meet_pipeline(
     audio_queue: asyncio.Queue,
+    playback_queue: asyncio.Queue | None = None,
     on_transcript=None,
     on_assistant=None,
 ):
     """Run the ginjoly meeting agent over audio coming from `audio_queue`.
 
     on_transcript(text) fires for every final transcription line; on_assistant(text)
-    fires with the bot's reply after it handles an addressed request.
+    fires with the bot's reply after it handles an addressed request. TTS audio is
+    forwarded onto `playback_queue` for the Playwright side to speak into the Meet.
     """
     from dotenv import load_dotenv
 
     load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"), override=True)
 
-    from app.config import get_settings
-    from app.meeting.pipeline import build_meeting_pipeline
     from pipecat.workers.runner import WorkerRunner
 
+    from app.config import get_settings
+    from app.meeting.pipeline import build_meeting_pipeline
+
     settings = get_settings()
-    transport = MeetTransport(audio_queue, sample_rate=settings.meeting_sample_rate)
+    playback_state = PlaybackState()
+    transport = MeetTransport(
+        audio_queue,
+        sample_rate=settings.meeting_sample_rate,
+        playback_queue=playback_queue,
+        playback_state=playback_state,
+    )
 
     worker, _session = build_meeting_pipeline(
         transport,

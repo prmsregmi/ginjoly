@@ -153,8 +153,9 @@ wake name, runs the request against external MCP tools (Jira / Slack / Gmail) an
 transcript and the bot's replies stream to the web UI.
 
 The `connector/` is only the on-ramp: `connector/bridge` (Python) captures and streams audio, and
-`connector/web` (Next.js) is the UI. All voice and agent logic lives in `server/`. (Speaking back *into*
-the meeting isn't wired yet — replies appear in the UI.)
+`connector/web` (Next.js) is the UI. All voice and agent logic lives in `server/`. The bot speaks its
+replies back *into* the meeting through an injected microphone (a Web Audio stream fed the TTS PCM); the
+same replies also stream to the UI.
 
 ### How to run
 

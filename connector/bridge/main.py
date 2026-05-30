@@ -115,6 +115,8 @@ async def update_meeting(mid: str, **kwargs):
 
 async def run_bot(mid: str, meeting_url: str):
     audio_queue: asyncio.Queue[bytes | None] = asyncio.Queue()
+    playback_queue: asyncio.Queue[bytes] = asyncio.Queue()
+    settings = get_settings()
 
     async def on_status(msg: str):
         print(f"[{mid}] {msg}")
@@ -146,9 +148,18 @@ async def run_bot(mid: str, meeting_url: str):
     from pipeline_bridge import run_meet_pipeline
 
     meet_task = asyncio.create_task(
-        join_meet(meeting_url, on_audio, on_status, bot_name=get_settings().meeting_bot_name)
+        join_meet(
+            meeting_url,
+            on_audio,
+            on_status,
+            bot_name=settings.meeting_bot_name,
+            playback_queue=playback_queue,
+            playback_sample_rate=settings.meeting_playback_sample_rate,
+        )
     )
-    pipeline_task = asyncio.create_task(run_meet_pipeline(audio_queue, on_transcript, on_assistant))
+    pipeline_task = asyncio.create_task(
+        run_meet_pipeline(audio_queue, playback_queue, on_transcript, on_assistant)
+    )
 
     try:
         # Wait for the first task to finish or raise; cancel the other so we never

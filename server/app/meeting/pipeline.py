@@ -72,7 +72,12 @@ def build_meeting_pipeline(
     )
     worker = PipelineWorker(
         pipeline,
-        params=PipelineParams(enable_metrics=True, enable_usage_metrics=True),
+        params=PipelineParams(
+            audio_in_sample_rate=settings.meeting_sample_rate,
+            audio_out_sample_rate=settings.meeting_playback_sample_rate,
+            enable_metrics=True,
+            enable_usage_metrics=True,
+        ),
         observers=[],
     )
     return worker, session
