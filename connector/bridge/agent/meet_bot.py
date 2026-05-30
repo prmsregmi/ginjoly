@@ -9,10 +9,11 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 WORKLET_JS = (Path(__file__).parent.parent / "static" / "audio_worklet.js").read_text()
-BOT_NAME = "Onion"
 
 
-async def join_meet(meeting_url: str, audio_callback, status_callback=None):
+async def join_meet(
+    meeting_url: str, audio_callback, status_callback=None, bot_name: str = "Onion"
+):
     """
     Joins a Google Meet as a guest bot.
     Calls audio_callback(pcm_bytes) with raw 16kHz mono int16 PCM.
@@ -75,7 +76,7 @@ async def join_meet(meeting_url: str, audio_callback, status_callback=None):
                     "input[placeholder*='name' i], input[aria-label*='name' i]"
                 ).first
                 await name_input.wait_for(state="visible", timeout=5000)
-                await name_input.fill(BOT_NAME)
+                await name_input.fill(bot_name)
                 await page.wait_for_timeout(500)
             except Exception:
                 pass
@@ -99,7 +100,7 @@ async def join_meet(meeting_url: str, audio_callback, status_callback=None):
                     btn = page.get_by_role("button", name=text)
                     if await btn.is_visible(timeout=3000):
                         await btn.click()
-                        await status(f"Waiting to be admitted as '{BOT_NAME}'...")
+                        await status(f"Waiting to be admitted as '{bot_name}'...")
                         break
                 except Exception:
                     pass
@@ -165,7 +166,7 @@ async def join_meet(meeting_url: str, audio_callback, status_callback=None):
                     }};
 
                     window._audioCaptureStarted = true;
-                    console.log('[Onion] Audio capture started');
+                    console.log('[{bot_name}] Audio capture started');
                 }}
             """)
 
