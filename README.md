@@ -4,7 +4,7 @@ You walk out of a two-hour call and can remember maybe the last three things sai
 
 **Carleton sits in the call and does the remembering for you.** It listens the entire time, builds a live structured understanding of what's happening, and — the part that matters — **acts on it**: files the ticket, sends the email, drafts the doc. The moment someone asks, or in one batch at the end. And every meeting makes it smarter about how your team works.
 
-**Video demo (< 60s):** _TBA_
+**Video demo (< 60s):** https://youtu.be/XdPGX2aY5UA
 
 ---
 
