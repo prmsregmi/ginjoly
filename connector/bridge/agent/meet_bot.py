@@ -37,7 +37,7 @@ async def join_meet(
     meeting_url: str,
     audio_callback,
     status_callback=None,
-    bot_name: str = "Onion",
+    bot_name: str = "Carleton",
     playback_queue: asyncio.Queue | None = None,
     playback_sample_rate: int = 48000,
 ):

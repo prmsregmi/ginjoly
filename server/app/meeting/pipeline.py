@@ -7,7 +7,7 @@ simply listen -> gate -> (on address) speak.
     transport.input() -> VADProcessor -> STT -> WakeNameGate -> TTS -> transport.output()
 
 VADProcessor gives natural interruption (a participant talking over the bot
-stops its TTS). STT (Deepgram default) provides the final transcriptions the
+stops its TTS). STT (Gradium default) provides the final transcriptions the
 gate keys off.
 """
 
@@ -16,13 +16,13 @@ from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.audio.vad_processor import VADProcessor
-from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.transports.base_transport import BaseTransport
 
 from app.config import get_settings
 from app.meeting.gate import WakeNameGate
 from app.meeting.session import MeetingSessionState
 from app.stt_factory import build_stt
+from app.tts_factory import build_tts
 
 
 def build_meeting_pipeline(
@@ -43,10 +43,7 @@ def build_meeting_pipeline(
     session = MeetingSessionState(tail_cap=settings.meeting_tail_max_lines)
 
     stt = build_stt(settings)
-    tts = CartesiaTTSService(
-        api_key=settings.cartesia_api_key,
-        settings=CartesiaTTSService.Settings(voice=settings.cartesia_voice_id),
-    )
+    tts = build_tts(settings)
     vad = SileroVADAnalyzer(
         sample_rate=settings.meeting_sample_rate,
         # Slightly aggressive stop to limit echo tails on the mixed stream.

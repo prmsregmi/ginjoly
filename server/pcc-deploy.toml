@@ -1,0 +1,20 @@
+# Pipecat Cloud deployment for the carleton meeting agent.
+# Cloud-build path: `pc cloud deploy` builds the image from ./Dockerfile in the
+# cloud, so no container registry or image_credentials are needed.
+#
+#   pc cloud auth login
+#   pc cloud secrets set carleton-secrets --file .env
+#   pc cloud deploy
+agent_name = "carleton"
+secret_set = "carleton-secrets"
+
+[build]
+context_dir = "."
+dockerfile = "Dockerfile"
+
+[build.exclude]
+patterns = ["tests/", "*.md", ".venv/", "vault/", "scorecards/", "__pycache__/", ".ruff_cache/", ".pytest_cache/"]
+
+[scaling]
+# Scale to zero when idle; Cekura/Daily sessions cold-start an instance on demand.
+min_instances = 0

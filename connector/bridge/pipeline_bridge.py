@@ -1,4 +1,4 @@
-"""Bridge between the Playwright Meet capture and the ginjoly meeting agent.
+"""Bridge between the Playwright Meet capture and the carleton meeting agent.
 
 `meet_bot.join_meet` captures the meeting's mixed audio as raw 16 kHz mono PCM
 and pushes each chunk onto an asyncio.Queue. `MeetTransport` turns that queue
@@ -144,7 +144,7 @@ async def run_meet_pipeline(
     on_extraction=None,
     on_session=None,
 ):
-    """Run the ginjoly meeting agent over audio coming from `audio_queue`.
+    """Run the carleton meeting agent over audio coming from `audio_queue`.
 
     on_transcript(text) fires for every final transcription line; on_assistant(text)
     fires with the bot's reply after it handles an addressed request;

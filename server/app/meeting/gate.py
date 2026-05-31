@@ -38,7 +38,7 @@ from app.meeting.session import MeetingSessionState
 
 _ECHO_RATIO = 0.8
 _STRIP = " ,.:;-—!?"
-# Leading conversational filler skipped before the wake name, so "hey ginjoly"
+# Leading conversational filler skipped before the wake name, so "hey carleton"
 # and "ok so ginny" still count as being addressed.
 _FILLERS = {"hey", "hi", "hello", "ok", "okay", "so", "um", "uh", "yo", "there", "alright"}
 
@@ -80,7 +80,7 @@ class WakeNameGate(FrameProcessor):
 
         The bot is addressed only when a wake name is the first meaningful token
         (after optional filler like "hey"/"ok so"). A wake name buried mid-
-        sentence ("I mentioned ginjoly earlier") is NOT an address, so it can't
+        sentence ("I mentioned carleton earlier") is NOT an address, so it can't
         trigger a spurious task in a meeting where people discuss the bot.
         """
         tokens = text.split()

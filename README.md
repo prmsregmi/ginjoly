@@ -1,42 +1,59 @@
-# Carleton — your meeting never forgets!
+# Carleton — your meeting never forgets
 
-You know the feeling. You walk out of a two-hour call, open a blank doc, and realize you can only remember the last three things said. Everything else is gone, the decisions, the tasks someone casually agreed to, the little detail that was actually the whole point. So you either spend 30 minutes reconstructing the meeting from memory or you just let it slip. 
+You walk out of a two-hour call and can remember maybe the last three things said. The decisions, the tasks people casually agreed to, the one detail that was the whole point — gone. So you either spend 30 minutes rebuilding the meeting from memory, or you let it slip.
 
-Carleton sits in the call with you. It listens the whole time, builds a live understanding of what's happening, and most importantly, ACTS on it: filing tickets, sending emails, drafting a doc - the moment someone asks or after the meeting end, right there in the meeting. 
+**Carleton sits in the call and does the remembering for you.** It listens the entire time, builds a live structured understanding of what's happening, and — the part that matters — **acts on it**: files the ticket, sends the email, drafts the doc. The moment someone asks, or in one batch at the end. Right there, in the meeting.
 
-**Video demo:** TBA
+**Video demo (< 60s):** _TBA_
 
 ---
 
 ## How it works
 
-Carleton joins your Google Meet as a guest via Playwright + Chrome, captures the mixed audio stream, and runs it through a Pipecat voice pipeline:
+Carleton joins your Google Meet as a guest (Playwright + Chrome), captures the mixed audio, and runs it through a Pipecat voice pipeline:
 
 ```
-Meet audio => VAD => STT => WakeNameGate => TTS => back into the call
+Meet audio → VAD → STT → WakeNameGate → TTS → back into the call
 ```
 
-The pipeline is deliberately passive. Carleton never interrupts and only responds when called by name. It just listens, accumulates transcript lines, and runs a rolling extraction every few minutes in the background (a lightweight Claude Haiku call that turns the lines into a structured working artifact)
+The design is deliberately **passive**. There is no conversational LLM in the pipeline, so Carleton never rambles, never interrupts, and costs almost nothing while it listens. It only speaks when addressed by name. Two things run off the voice path:
 
-- **context** — a tight running prose summary of what's been decided and discussed
-- **open_tasks** — concrete, addressable things someone asked for ("create a ticket for the login bug")
-- **preference_candidates** — durable team practices worth remembering across meetings
+**1. Rolling extraction (background, every few minutes).** New transcript lines are folded into a structured working artifact:
+- **context** — a tight running summary of what's been decided
+- **open_tasks** — concrete, addressable asks ("create a ticket for the login bug")
+- **preference_candidates** — durable team practices worth keeping across meetings
 
-When someone says "hey Carleton, file that ticket" or "Carleton, email the deck to Sam", Carleton catches it. Then it dispatches to the meeting brain, a Claude Agent SDK agent with MCP tools for Jira, Slack, Gmail, Linear, and Google Drive. It acts immediately and replies in one spoken sentence. At the end of the meeting you can also hit "run tasks" to execute everything Carleton noted but nobody verbally triggered. 
+Because the brain reads `context + open_tasks + last N lines` instead of the full transcript, **cost scales with new speech per interval, not meeting length** — a two-hour call costs about the same per tick as a ten-minute one.
 
-The rolling extraction means the brain does not need to read the whole transcript too. It reads `summary + pending tasks + last N lines` which is short, cheap, low-latency. Cost scales with new speech per interval instead of meeting length.
+**2. The meeting brain (on demand).** When someone says *"Carleton, file that ticket"* or *"Carleton, email the deck to Sam,"* the `WakeNameGate` catches it and dispatches to a Claude Agent SDK agent wired to MCP tools — **Jira, Slack, Gmail, Linear, Google Drive** (plus servers you add at runtime from the dashboard). It executes immediately and confirms in one spoken sentence. At meeting end, **"run tasks"** executes everything Carleton noted that nobody verbally triggered, through the same tool interface.
 
-Team preferences get written to Obsidian across meetings, so Carleton also gradually learns how your team works.
+Confirmed team preferences are written to long-term memory (Obsidian), so the next meeting starts already knowing how the team works.
+
+**Production deployment.** The same pipeline is packaged for **Pipecat Cloud** (`bot.py` Daily-WebRTC entrypoint + Dockerfile + `pcc-deploy.toml`, cloud-built), where it runs as an auto-scaling agent — scale-to-zero when idle, an instance per session.
 
 ---
 
-## Using Pipecat, Nemotron, and Cekura
+## Pipecat, Nemotron, and Cekura
 
 ### Pipecat
-The entire voice path is built on Pipecat. VAD (Silero), STT (Deepgram or NVIDIA Parakeet), TTS (Cartesia), and the frame pipeline are all Pipecat. The `WakeNameGate` is a custom `FrameProcessor` that sits between STT and TTS — it drops interim frames, filters self-echoes (the bot re-captures its own TTS through the mixed Meet stream), and dispatches addressed requests off the voice path so the pipeline never blocks.
+The entire voice path is Pipecat: Silero VAD, swappable STT/TTS, and the frame pipeline on `PipelineWorker`/`WorkerRunner`. The `WakeNameGate` is a custom `FrameProcessor` between STT and TTS that drops interim frames, suppresses self-echo (the bot re-hears its own TTS through the mixed Meet stream), and dispatches addressed requests **off** the voice path so the pipeline never blocks. Shipped to production on Pipecat Cloud via cloud build.
+
+### Nemotron (open weights)
+Carleton runs NVIDIA open models on the two jobs that happen constantly, where open-weights latency and cost win:
+- **Rolling extraction (default):** `nvidia/nemotron-3-super` served over a vLLM OpenAI-compatible endpoint, called with a **forced JSON schema** and thinking disabled. It turns raw transcript lines into the `context / open_tasks / preference_candidates` artifact on every tick — fast, cheap, and structured. Anthropic is available as a drop-in fallback via one env var.
+- **Speech-to-text:** **NVIDIA Parakeet** streaming ASR as a first-class STT provider (Deepgram and Gradium are the alternates), with VAD-driven turn finalization.
 
 ### Cekura
-We used Cekura to evaluate whether Carleton's task extraction was actually catching the right things. The stress test (`tests/stress_cekura.py`) spins up 10 concurrent synthetic meeting sessions with distinct contexts and task sets, builds scorecards, and submits them to Cekura concurrently — the goal being to measure extraction accuracy, catch variance in what gets flagged as a "task" vs. casual chatter, and stress-test the eval pipeline itself before relying on it for real meetings.
+The hardest correctness problem for a passive, always-on meeting agent isn't answering well — it's **knowing when it's being addressed**. Acting on a mere mention of its name ("we should ask Carleton later") or on crosstalk is worse than missing a request. We treated this as a measurable property and built an evaluation suite around it.
+
+We authored a **30-scenario test suite in Cekura**, run through Cekura's hosted **Pipecat (WebRTC) simulation** against the deployed agent. Each scenario pairs a distinct persona and speaking style with an intent and an expected outcome, spanning four dimensions:
+
+1. **Addressed requests** — one per tool (Jira/Slack/Gmail/Linear/Drive), verifying the gate fires and the brain selects the correct tool.
+2. **False-trigger traps** — the agent's name spoken *about* it, not *to* it; the bot must stay silent.
+3. **Underspecified requests** — missing a required field; the bot must ask for exactly what it needs rather than guess.
+4. **Impossible requests** — unsupported actions; the bot must decline plainly.
+
+Cekura drives each persona conversation end-to-end and scores the transcripts, giving us per-dimension signal instead of anecdotes. The suite surfaced the expected failure mode — the agent occasionally reacting to its name mid-sentence — which we closed by hardening the `WakeNameGate`: leading-filler tolerance ("hey / ok so" before the name), strict first-meaningful-token addressing so mid-sentence mentions can't trigger, and self-echo suppression. On the re-run, the false-trigger class was eliminated while addressed-request and tool-selection coverage held. The result is a repeatable regression suite we can re-run on every change rather than a one-time check.
 
 ---
 
@@ -44,18 +61,45 @@ We used Cekura to evaluate whether Carleton's task extraction was actually catch
 
 Carleton was built during the hackathon:
 
-- The passive meeting listener (Pipecat pipeline with no conversational LLM, wake-word gate)
-- Rolling extraction — the incremental Haiku extraction loop with snapshot-then-apply semantics so lines can't be dropped mid-pass
-- Meeting brain with MCP tool dispatch (Jira, Slack, Gmail, Linear, Google Drive, dynamic runtime-added servers)
-- Batch task runner — the same executor the wake word uses, triggered at meeting end
-- Long-term Obsidian memory (team preferences promoted across meetings)
-- The Carleton dashboard (Next.js, WebSocket, per-meeting transcript/tasks/activity)
-- Cekura extraction accuracy evaluation
+- The passive meeting listener — Pipecat pipeline with no conversational LLM and the wake-word gate
+- Rolling Nemotron extraction with snapshot-then-apply semantics so lines are never dropped mid-pass
+- The meeting brain with MCP tool dispatch (Jira, Slack, Gmail, Linear, Google Drive, plus runtime-added servers)
+- The end-of-meeting batch runner — the same executor the wake word uses
+- Long-term Obsidian memory of team preferences across meetings
+- The Carleton dashboard (Next.js + WebSocket: live transcript, tasks, and activity per meeting)
+- The 30-scenario Cekura evaluation suite and the gate hardening it drove
+- Pipecat Cloud deployment (Daily-WebRTC entrypoint, cloud build)
+
+Built on top of Pipecat, Pipecat Cloud, the provider SDKs (NVIDIA, Deepgram, Cartesia, Anthropic), and the MCP servers.
 
 ---
 
-## Feedback
+## Feedback on the tools
 
-**Pipecat** — the frame model is clean and the composability is real. The one rough edge: there's no first-class way to run a side-effect off a frame without either blocking the pipeline or spinning a raw `asyncio.create_task` and manually tracking it for teardown. For the wake-word dispatch and the rolling extractor we ended up doing the latter, which works but is easy to get wrong (leaking tasks into a dead pipeline). A `FrameProcessor.spawn_task()` that Pipecat tracks and cancels at cleanup would be a clean primitive.
+**Pipecat** — the frame model is clean and genuinely composable. The one rough edge: there's no first-class way to run a side-effect off a frame. Both the wake-word dispatch and the rolling extractor need to fire async work without blocking the pipeline, and the only option is a raw `asyncio.create_task` that you must track and cancel yourself at teardown. We built that bookkeeping (cancel-on-End/Cancel, awaited cleanup), but a tracked `FrameProcessor.spawn_task()` that the framework cancels at cleanup would make this safe by default.
 
-**Cekura** — the eval loop concept is solid. The main friction was knowing what to put in the scorecard vs. the session state to get actionable signal back. More example scorecards for voice/multi-turn agents would shorten the ramp-up. One potential bug: concurrent submissions with very similar transcripts sometimes returned swapped verdict labels, so it might be worth investigating whether the eval pipeline has a race on the session context.
+**Nemotron** — `nemotron-3-super` was a strong fit for high-frequency structured extraction: low latency with thinking off, and reliable schema-constrained JSON for short contexts, at a cost profile that makes a per-few-minutes loop practical. Parakeet streaming ASR integrated cleanly over websocket. Where it could improve: JSON adherence drifts on longer, messier inputs and benefits from strict schema re-prompting, and the streaming ASR's turn-finalization semantics took iteration to align with VAD stop events — clearer guidance there would shorten integration.
+
+**Cekura** — the hosted Pipecat integration was the highlight: point it at a deployed agent (provider, API key, agent name) and it runs persona scenarios with zero glue, and auto-generating scenarios from an agent description is a fast on-ramp. Three things would make it stronger for agents like ours:
+- **Multi-speaker simulation.** The simulation is single-caller / two-party, so it can't reproduce concurrent crosstalk — which is precisely the toughest false-trigger case for a meeting listener. N concurrent simulated speakers in one room would be high-value.
+- **Consistent agent identifiers.** The `PipecatTracer` SDK takes an integer `agent_id` while the observe REST path uses a string identifier — easy to trip over.
+- **Tracing for LLM-less pipelines.** The `PipecatTracer` assumes an in-pipeline `LLMContext` for transcript/tool-call capture. Pipelines that run the agent off-path (like ours) have no such context, so tool-call observability doesn't fit; documenting a supported pattern for this shape would help.
+
+---
+
+## Running it
+
+```bash
+# Backend bridge (FastAPI + Playwright + the voice pipeline):
+cd connector/bridge
+uv run --project ../../server --env-file ../../server/.env python main.py   # :8000
+
+# Dashboard:
+cd connector/web && npm run dev                                              # :3000
+
+# Deploy the agent to Pipecat Cloud:
+cd server
+pc cloud auth login
+pc cloud secrets set carleton-secrets --file .env.secrets
+pc cloud deploy
+```

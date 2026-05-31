@@ -4,6 +4,12 @@ __pycache__/
 *.pyo
 venv/
 .env
+.env.*
+!.env.example
+*.secrets
+
+# Local agent/editor config
+.claude/
 
 # Node
 node_modules/

@@ -86,9 +86,9 @@ const KIND_CONFIG: Record<EventKind, { icon: string; textColor: string; bgColor:
   action:     { icon: "✓",  textColor: "text-emerald-400", bgColor: "bg-emerald-950/40" },
 };
 
-// Bot display name comes from the backend (MEETING_BOT_NAME env, default "Onion").
+// Bot display name comes from the backend (MEETING_BOT_NAME env, default "Carleton").
 // Cached at module scope so it's fetched once and shared across components.
-let _botNameCache = "Onion";
+let _botNameCache = "Carleton";
 function useBotName() {
   const [name, setName] = useState(_botNameCache);
   useEffect(() => {

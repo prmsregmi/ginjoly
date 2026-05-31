@@ -7,7 +7,7 @@ a fallback if Anthropic in-pipeline tool-calling misbehaves. The provider is
 read from `settings.llm_provider` unless overridden, so the rest of the
 pipeline and the flow wiring are identical across providers.
 
-ginjoly uses LLMContextAggregatorPair, so pipecat-flows runs the
+carleton uses LLMContextAggregatorPair, so pipecat-flows runs the
 UniversalLLMAdapter: any OpenAILLMService subclass (VLLMOpenAILLMService) works
 with the existing FlowsFunctionSchema tools without a flow-graph change.
 

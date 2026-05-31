@@ -151,6 +151,7 @@ def test_stub_extraction_returns_prev_unchanged_when_no_new_lines():
 
 async def test_extract_routes_to_stub_without_api_key():
     class _NoKey:
+        extraction_provider = "anthropic"
         anthropic_api_key = None
         meeting_summary_model = "claude-haiku-4-5"
 
@@ -169,7 +170,41 @@ async def test_extract_returns_none_on_agent_error(monkeypatch):
     monkeypatch.setattr(r, "_agent_extraction", boom)
 
     class _Key:
+        extraction_provider = "anthropic"
         anthropic_api_key = "sk-test"
         meeting_summary_model = "claude-haiku-4-5"
 
     assert await r.extract("alice: hi", RollingExtraction(context="prev"), settings=_Key()) is None
+
+
+# --- nemotron is the default provider ---
+async def test_extract_routes_to_nemotron_by_default(monkeypatch):
+    """Nemotron (vLLM) is the default; a settings object that doesn't pin a provider
+    routes to the vLLM path, not Anthropic — even with no anthropic key."""
+    import app.extraction.rolling as r
+
+    async def fake_nemotron(new_lines, prev, settings):
+        return RollingExtraction(context=f"nemotron::{new_lines}")
+
+    monkeypatch.setattr(r, "_nemotron_extraction", fake_nemotron)
+
+    class _Default:  # no extraction_provider set -> defaults to nemotron
+        anthropic_api_key = None
+
+    out = await r.extract("alice: hi", RollingExtraction(), settings=_Default())
+    assert out.context == "nemotron::alice: hi"
+
+
+async def test_extract_returns_none_on_nemotron_error(monkeypatch):
+    """A failed Nemotron call signals failure (None) so the loop keeps the lines."""
+    import app.extraction.rolling as r
+
+    async def boom(*args, **kwargs):
+        raise RuntimeError("vllm down")
+
+    monkeypatch.setattr(r, "_nemotron_extraction", boom)
+
+    class _Default:
+        extraction_provider = "nemotron"
+
+    assert await r.extract("alice: hi", RollingExtraction(), settings=_Default()) is None

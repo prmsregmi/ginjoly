@@ -2,8 +2,9 @@
 
 Every key is optional so the module imports cleanly even when a given
 integration is not configured yet; callers check for the specific key they
-need. The voice pipeline requires DEEPGRAM/ANTHROPIC/CARTESIA; long-term memory
-writes to an Obsidian vault on disk (OBSIDIAN_VAULT_PATH, no key needed).
+need. STT+TTS default to GRADIUM and extraction to NEMOTRON, with
+DEEPGRAM/CARTESIA/ANTHROPIC reachable via env; the meeting brain uses ANTHROPIC.
+Long-term memory writes to an Obsidian vault on disk (OBSIDIAN_VAULT_PATH).
 """
 
 import uuid
@@ -23,14 +24,23 @@ class Settings(BaseSettings):
     deepgram_api_key: str | None = None
     cartesia_api_key: str | None = None
     cartesia_voice_id: str = DEFAULT_CARTESIA_VOICE
+    gradium_api_key: str | None = None
+    # Gradium TTS voice id; None uses the service default voice.
+    gradium_voice: str | None = None
     anthropic_api_key: str | None = None
     anthropic_model: str = "claude-sonnet-4-5"
 
-    # --- Stack selection (Phase 1) ---
-    # Swap the cascade's ear/brain without touching the flow graph.
-    #   stt_provider: "deepgram" (baseline) | "nemotron"
-    #   llm_provider: "anthropic" (baseline) | "nemotron" | "openai" | "nim"
-    stt_provider: str = "deepgram"
+    # --- Stack selection ---
+    # The hackathon-recommended provider is the DEFAULT for each; the prior
+    # baseline stays reachable via env (no code change).
+    #   stt_provider:        "gradium" (default) | "deepgram" | "nemotron"
+    #   tts_provider:        "gradium" (default) | "cartesia"
+    #   extraction_provider: "nemotron" (default) | "anthropic"
+    stt_provider: str = "gradium"
+    tts_provider: str = "gradium"
+    extraction_provider: str = "nemotron"
+    # In-pipeline LLM provider — unused by the meeting agent (no conversational
+    # LLM in the pipeline); kept for the swappable llm_factory.
     llm_provider: str = "anthropic"
 
     # --- Swappable LLM alternatives ---
@@ -48,6 +58,26 @@ class Settings(BaseSettings):
     nemotron_llm_api_key: str = "EMPTY"  # vLLM ignores unless served with --api-key
     nemotron_enable_thinking: bool = False  # keep OFF for low-latency voice
 
+    # --- Eval / observability (Cekura) ---
+    # The finished meeting transcript is submitted to Cekura at meeting end when
+    # a key is set; agent id groups the runs in the dashboard.
+    cekura_api_key: str | None = None
+    cekura_agent_id: str = "carleton"
+    # Numeric agent id for the Cekura PipecatTracer SDK (distinct from the string
+    # observe id above — the SDK requires an int). When this AND cekura_api_key
+    # are set, bot.py attaches the tracer so each deployed call's transcript +
+    # (optionally) audio land in the Cekura dashboard. Leave unset to disable.
+    cekura_pipecat_agent_id: int | None = None
+    # Record dual-channel audio to Cekura (observability mode). Off by default so
+    # simulation/test runs stay transcript-only and cheap.
+    cekura_record_audio: bool = False
+
+    # --- Pipecat Cloud / Daily transport (production deploy) ---
+    # When deployed on Pipecat Cloud the agent joins a Daily room (the bot's voice
+    # transport in the cloud — the Playwright Meet bridge is local-only). The bot
+    # name shown in the room reuses meeting_bot_name.
+    daily_api_key: str | None = None
+
     # --- Long-term memory (Obsidian vault on disk) ---
     # Team best-practices note + per-meeting transcript archive are written here.
     obsidian_vault_path: str = "./vault"
@@ -55,9 +85,9 @@ class Settings(BaseSettings):
     # --- Meeting task agent ---
     # The bot listens passively in a meeting and only acts when addressed by one
     # of these wake names. Comma-separated in the env; parsed via wake_names.
-    meeting_wake_names: str = "onion"
+    meeting_wake_names: str = "carleton"
     # Display name the Meet bot joins under; the web UI reads it via /api/config.
-    meeting_bot_name: str = "Onion"
+    meeting_bot_name: str = "Carleton"
     # Mixed Google-Meet audio arrives as raw 16-bit PCM at this rate (mono);
     # the bot's TTS is sent back at the same rate for the Playwright bridge.
     meeting_sample_rate: int = 16000
